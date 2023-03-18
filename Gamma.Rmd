@@ -1,0 +1,331 @@
+---
+title: "gamma"
+author: 'Chetali Jain'
+date: "12/09/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = FALSE)
+knitr::opts_chunk$set(comment = NA)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+# Investigation Aim
+
+This data analysis report is to provide the best machine learning algorithm used to predict whether the showers arise from gamma particles or from hadron.
+
+# Background
+
+The data used for this analysis is assigned by Professor Jarvis and can also be extracted from the Magic Gamma Telescope dataset,  
+https://archive.ics.uci.edu/ml/datasets/magic+gamma+telescope
+
+The data is used to simulate registration of high energy gamma particles in a ground-based atmospheric Cherenkov gamma telescope. Telescope observes the gamma rays, and the radiations emitted by charged particles inside the electromagnetic showers allows reconstruction of the shower parameters. The energy produced by these gamma particles results in few hundreds to some 10000 Cherenkov photons in patterns (shower image). The goal is to distinguish statistically the showers which arise from gamma particles from those which come from hadron.
+
+Magic Gamma Telescope dataset contains 11 columns. The first 10 columns are continuous independent variable and the last column is dependent variable i.e., class label, g (for gamma) or h (for hadron). The variables and there unit are as follow:
+
+1. Length: the major axis length of the ellipse (mm)
+2. Width: the minor axis length of the ellipse (mm)
+3. Size: the (log of the) total brightness of the ellipse (photons)
+4. Conc: a measure of concentration of the brightness 
+5. Conc1: a measure of the maximum brightness to the size
+6. Asym: a measure of how far the brightest pixel is from the centre (mm)
+7. M3long: a measure of the concentration along the major axis (mm)
+8. M3Trans: a measure of the concentration along the minor axis (mm)
+9. Alpha: the angle of the major axis to the axis of the telescope (degree)
+10. Dist: the distance from the central point of the telescope to the  ellipse (mm)
+11. class: either g (for a gamma particle) or h (hadron).
+
+The data contains 1999 gamma particles and 2000 hadrons particles. 
+
+The data is split into training set and testing set in 8:2 ratio using sample.split function available in caTools library and to get the same sample, seed is set at 123. The independent variables are standardized (i.e. mean = 0 and standard deviation = 1) using preProcess function in Caret library. #xyz number of machine algorithms are employed and compared and the best method is selected on the basis of accuracy of test set prediction. 
+
+
+
+```{r Library import}
+library(caTools)
+library(InformationValue)
+library(ggplot2)
+library(dplyr)
+library(MASS)
+library(caret)
+library(rpart)
+library(randomForest)
+library(reticulate)
+library(tensorflow)
+library(keras)
+```
+
+
+
+```{r loading dataset}
+
+setwd("C:/Users/rahul/Desktop/machine learning/assignment 2")
+
+gd <- read.csv("gamma.csv")
+
+#checking for missing value
+x <- data.frame(is.na(gd))
+z <- x %>% filter(class == TRUE)
+
+#removing null values
+gd <- na.omit(gd)
+attach(gd)
+
+#converting class into categorical data
+gd$class <- as.factor(gd$class)
+str(gd)
+
+```
+
+
+```{r splitting data}
+set.seed(123)
+train_test_split <- sample.split(gd$class, SplitRatio = 0.8)
+gdtrain <- subset(gd,train_test_split == TRUE)
+gdtest <- subset(gd,train_test_split == FALSE)
+```
+
+
+```{r standardizing data}
+# Estimate preprocessing parameters
+preproc.param <- gdtrain %>% 
+  preProcess(method = c("center", "scale"))
+
+
+# Transform the splitted data using the estimated parameters
+train.transformed <- preproc.param %>% predict(gdtrain)
+test.transformed <- preproc.param %>% predict(gdtest)
+```
+
+
+# Logistic Regression
+
+
+
+```{r lr test on splitted data}
+#training dataset LR model
+gd.lr <- glm(as.factor(class)~.,data = train.transformed, family=binomial)
+
+gdtrain.prob.lr <- predict(gd.lr, train.transformed, type='response')
+gdtrain.pred.lr <- ifelse(gdtrain.prob.lr > 0.5, "h", "g")
+
+
+gdtest.prob.lr <- predict(gd.lr, test.transformed, type = "response") 
+gdtest.pred.lr <- ifelse(gdtest.prob.lr >0.5, "h", "g")
+table(Actual_value = gdtest$class, Predicted_value = gdtest.pred.lr)
+
+```
+
+
+```{r lr accuracy}
+#training dataset
+acc.train.lr <- mean(gdtrain.pred.lr == train.transformed$class)
+round(acc.train.lr*100,2)
+
+#testing dataset
+acc.test.lr <-  mean(gdtest.pred.lr == test.transformed$class)
+round(acc.test.lr*100,2)
+
+```
+
+# Discriminant Analysis
+
+```{r lda}
+gd.lda <- lda(as.factor(class) ~., data = train.transformed)
+train.pred.lda <- gd.lda %>% predict(train.transformed)
+acc.train.lda <- mean(train.pred.lda$class==train.transformed$class)
+round(acc.train.lda*100, 2)
+
+test.pred.lda <- gd.lda %>% predict(test.transformed)
+acc.test.lda <- mean(test.pred.lda$class==test.transformed$class)
+table(Actual_value = gdtest$class, Predicted_value = test.pred.lda$class)
+round(acc.test.lda*100, 2)
+```
+
+```{r qda}
+gd.qda <- qda(as.factor(class) ~., data = train.transformed)
+train.pred.qda <- gd.qda %>% predict(train.transformed)
+acc.train.qda <- mean(train.pred.qda$class==train.transformed$class)
+round(acc.train.qda*100, 2)
+
+test.pred.qda <- gd.qda %>% predict(test.transformed)
+acc.test.qda <- mean(test.pred.qda$class==test.transformed$class)
+table(Actual_value = gdtest$class, Predicted_value = test.pred.qda$class)
+round(acc.test.qda*100, 2)
+
+```
+
+# Random Forest 
+
+```{r dec tree}
+dec_tree <- rpart(as.factor(class)~., 
+                  data = train.transformed, 
+                  method="class",control = rpart.control(cp = 0.01))
+#summary(dec_tree)
+plot(dec_tree)
+text(dec_tree)
+printcp(dec_tree)
+prune(dec_tree, cp=dec_tree$cptable[which.min(dec_tree$cptable[,"xerror"]),"CP"])
+
+summary(dec_tree,cp = 0.01)
+dec_pred <- predict(dec_tree,type = "class")
+table(train.transformed$class,dec_pred)
+mean(train.transformed$class == dec_pred)
+```
+
+
+```{r}
+plot(dec_tree, uniform=TRUE, branch = 0.5,  margin=0.1)
+text(dec_tree,use.n=TRUE)
+```
+```{r rf prediction}
+#best selection using tuneRF
+rf <- randomForest(class~.,data = train.transformed,ntree = 300,
+                   mtry = 6,importance = TRUE, proximity = TRUE)
+plot(margin(rf))
+summary(rf)
+pred_test_rf <-predict(rf, test.transformed)
+table(test.transformed$class,pred_test_rf)
+mean(test.transformed$class==pred_test_rf)
+print(rf)
+
+confusionMatrix(pred_test_rf,test.transformed$class)
+plot(rf)
+
+yy <- c(50,100,200,300,400,500,600)
+
+for (i in yy){
+  z <- randomForest(class~.,data = train.transformed,ntree = i,
+                   mtry = 6,importance = TRUE, proximity = TRUE)
+  pred_test_rf <-predict(z, test.transformed)
+  cf <- table(test.transformed$class,pred_test_rf)
+  acc <- mean(test.transformed$class==pred_test_rf)
+  plot(i,acc,main = "6")
+}
+
+for (i in yy){
+  z <- randomForest(class~.,data = train.transformed,ntree = i,
+                   mtry = 3,importance = TRUE, proximity = TRUE)
+  pred_test_rf <-predict(z, test.transformed)
+  cf <- table(test.transformed$class,pred_test_rf)
+  acc <- mean(test.transformed$class==pred_test_rf)
+  plot(i,acc,main = "3")
+}
+
+t <- tuneRF(train.transformed[,-11],train.transformed[,11],
+       stepFactor = 0.5,
+       plot = TRUE,
+       ntreeTry = 500,
+       trace = TRUE,
+       improve = 0.05)
+
+
+varImpPlot(rf)
+```
+
+#Boosting
+
+```{r}
+train_tran_copy <- train.transformed
+train_tran_copy$class <- ifelse(train_tran_copy$class == "g",1,0)
+train_tran_copy <- as.matrix(train_tran_copy)
+
+test_tran_copy <- test.transformed
+test_tran_copy$class <- ifelse(test_tran_copy$class == "g",1,0)
+test_tran_copy <- as.matrix(test_tran_copy)
+
+
+xgb_cv <- xgb.cv(data = train_matrix,label = y_train, 
+                 eta = 0.001,max.depth = 3,
+                 nrounds = 10, nfold = 5,
+                 objective = "binary:logistic",
+                 verbose = TRUE)
+#cv
+gd.xgb <- xgboost(data = train_tran_copy[,-11],
+                 label = train_tran_copy[,11], 
+                 nrounds = 100,
+                 nfold = 5, 
+                 objective = "binary:logistic",
+                 verbose = 0)
+pred_train_xgb <- predict(gd.xgb, train_tran_copy[,-11])
+pred_train_xgb <- ifelse(pred_train_xgb >0.5, 1,0)
+mean(train_tran_copy[,11] == pred_train_xgb)
+
+pred_test_xgb <- predict(gd.xgb, test_tran_copy[,-11])
+pred_test_xgb <- ifelse(pred_test_xgb >0.5, 1,0)
+mean(test_tran_copy[,11] == pred_test_xgb)
+
+#tuning parameters for gradient boosting
+nc <- length(unique(y_train))
+xgb_params <- list("objective" = "binary:logistic",
+                   "eval_metric" = "mlogloss",
+                   "num_class" = nc)
+watchlist <- list(train = train_matrix, test = test_matrix)
+
+bst_model <- xgb.train(params = xgb_params,
+                       data = train_matrix,
+                       nrounds = 100,
+                       watchlist = watchlist,
+                       eta = 0.001,
+                       max.depth = 3,
+                       gamma = 0,
+                       subsample = 1,
+                       colsample_bytree = 1,
+                       missing = NA,
+                       seed = 333)
+
+# Training & test error plot
+e <- data.frame(bst_model$evaluation_log)
+plot(e$iter, e$train_mlogloss, col = 'blue')
+lines(e$iter, e$test_mlogloss, col = 'red')
+
+#optimal value of iterations
+min(e$test_mlogloss)
+e[e$test_mlogloss == 0.518393,]
+
+# Feature importance
+imp <- xgb.importance(colnames(train_matrix), model = bst_model)
+xgb.plot.importance(imp)
+
+
+
+
+#cv
+
+xgb_params_cv <- list("objective" = "binary:logistic",
+                   "eta" = 1,
+                   "max_depth" = 3)
+
+
+bst_model_cv <- xgb.cv(params = xgb_params_cv,
+                       data = train_matrix,
+                       nrounds = 100,
+                       nfold = 10,
+                       showsd = TRUE,
+                       metrics = "rmse",
+                       verbose = TRUE,
+                       watchlist = watchlist,
+                       missing = NA,
+                       seed = 333)
+plot(bst_model_cv$evaluation_log$iter,bst_model_cv$evaluation_log$train_rmse_mean)
+lines(bst_model_cv$evaluation_log$iter,bst_model_cv$evaluation_log$test_rmse_mean)
+bst_model_cv$evaluation_log[bst_model_cv$evaluation_log$test_rmse_mean == min(bst_model_cv$evaluation_log$test_rmse_mean),]
+print(bst_model_cv)
+```
+
+
+# Support Vector Machine
+
+```{r support vector machine}
+gd.svm <- tune(svm,class~.,data = train.transformed, 
+              type = "C-classification",kernel = "linear", 
+              ranges = list(gamma= seq(1,2,0.05),
+                            cost = seq(100,1000,100)))
+summary(gd.svm)
+#p <- predict(gd.svm,test.transformed)
+#mean(p==test.transformed$class)
+
+```
+
